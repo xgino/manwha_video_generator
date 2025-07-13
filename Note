@@ -24,4 +24,28 @@ on finished sentence like like tha-- get not read so we need to clean it up more
 
 
 
+New note ===
+
+
+Audio doenst know where we are on scroll, so if it is longer than x we mismatch the reading and scrolling.
+Alternative is to get image on the scroll base on that gen the audio and others to match whats on screen.
+
+for now it works for TBATE
+
+
+, 'Image too large: (540, 45722 Error, if no images all squeezed together as one image
+
+
+What if we cut the image into pieces for us? normalize input image size?
+
+
+
+
+
+
+
+Have to run ollama server first to use local LLM 
+ollama serve
+
+
 

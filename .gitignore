@@ -1,0 +1,4 @@
+*.pt
+/downloads/
+/venv/
+lofi.mp3

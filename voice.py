@@ -1,59 +1,118 @@
 import json
-import os
-import re
-import pyttsx3
 from pathlib import Path
+import re
+import asyncio
+import edge_tts
 
 
 def clean_text(text: str) -> str:
-    """Clean and format text to improve TTS output."""
+    """
+    Clean text for smoother TTS reading.
+    """
     text = text.replace("\n", " ").strip()
-    text = re.sub(r"--+", ",", text)              # Replace dashes with commas
-    text = re.sub(r"\.\.\.+", ",", text)          # Replace ... with comma pause
-    text = re.sub(r"[^\w\s.,!?']", "", text)       # Remove unwanted characters
-    text = re.sub(r"\s{2,}", " ", text)           # Remove double spaces
+    text = re.sub(r"--+", ",", text)
+    text = re.sub(r"\.\.\.+", ",", text)
+    text = re.sub(r"[^\w\s.,!?']", "", text)
+    text = re.sub(r"\s{2,}", " ", text)
     if text and text[-1] not in ".!?":
-        text += "."                               # Ensure it ends with punctuation
+        text += "."
     return text
 
 
-def generate_manga_voiceovers(
+def extract_numeric_part(image_path: str) -> int:
+    """
+    Extract numeric part from image filename.
+    E.g. "downloads/.../10.jpg" → 10
+    """
+    if not image_path:
+        return -1
+    stem = Path(image_path).stem
+    match = re.search(r"(\d+)", stem)
+    return int(match.group(1)) if match else -1
+
+
+async def generate_manga_voiceovers(
     manga_folder: str,
-    output_subdir: str = "audio_output"
+    output_subdir: str = "audio_output",
+    voice: str = "en-US-AriaNeural",
+    rate: str = "+0%",
+    volume: str = "+0%"
 ):
+    """
+    Generate audio voiceovers for manga JSON data using edge-tts.
+    
+    Args:
+        manga_folder: Path to folder containing JSON files or a single JSON file.
+        output_subdir: Where to save MP3 files.
+        voice: Name of the neural voice (Edge TTS voice list).
+        rate: Speaking rate adjustment (e.g. "+10%").
+        volume: Volume adjustment (e.g. "+3%").
+    """
     manga_path = Path(manga_folder)
-    bubbles_path = manga_path / "cleaned_bubbles.json"
     output_path = manga_path / output_subdir
-    output_path.mkdir(exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=True)
 
-    if not bubbles_path.exists():
-        raise FileNotFoundError(f"{bubbles_path} does not exist")
+    # If folder contains multiple JSONs, loop them all
+    if manga_path.is_dir():
+        json_files = list(manga_path.glob("*.json"))
+    else:
+        json_files = [manga_path]
 
-    with open(bubbles_path, "r", encoding="utf-8") as f:
-        bubbles_by_image = json.load(f)
+    for json_file in json_files:
+        print(f"🔎 Processing {json_file} ...")
+        with open(json_file, "r", encoding="utf-8") as f:
+            # Either single dict or list of dicts
+            data = json.load(f)
 
-    engine = pyttsx3.init()
+        # Wrap single object into list
+        if isinstance(data, dict):
+            data = [data]
 
-    # Optional: Adjust voice parameters here
-    engine.setProperty('rate', 160)     # Speed (lower = slower, more natural)
-    engine.setProperty('volume', 0.9)   # Volume (0.0 to 1.0)
+        # Sort entries by numeric part of filename
+        data_sorted = sorted(
+            data,
+            key=lambda entry: extract_numeric_part(entry.get("image", ""))
+        )
 
-    # List voices and choose one (optional)
-    voices = engine.getProperty('voices')
-    # engine.setProperty('voice', voices[1].id)  # Example: set to 2nd available voice
+        for idx, entry in enumerate(data_sorted, start=1):
+            image_path = entry.get("image")
+            cleaned_text = entry.get("cleaned_text")
+            extracted_text = entry.get("extracted_text")
 
-    for image_name, bubble in bubbles_by_image.items():
-        mp3_name = f"{Path(image_name).stem}.mp3"
-        audio_output_file = output_path / mp3_name
+            text = cleaned_text or extracted_text or ""
+            text = clean_text(text)
+            if not text.strip():
+                print(f"⚠️ Skipping empty text for entry {idx}")
+                continue
 
-        text = bubble.get("text", "")
-        cleaned = clean_text(text)
-        if not cleaned.strip():
-            continue
+            # Determine output filename
+            image_filename = Path(image_path).stem if image_path else f"voice_{idx}"
+            mp3_filename = f"{image_filename}.mp3"
+            mp3_path = output_path / mp3_filename
 
-        print(f"[{image_name}] Generating speech...")
+            print(f"🎙️ Generating voiceover for [{image_filename}]")
 
-        engine.save_to_file(cleaned.strip(), str(audio_output_file))
+            communicate = edge_tts.Communicate(
+                text=text,
+                voice=voice,
+                rate=rate,
+                volume=volume,
+            )
+            await communicate.save(str(mp3_path))
 
-    engine.runAndWait()
-    print(f"\n✅ Voiceover generation complete. Output saved to: {output_path}")
+    print(f"\n✅ All voiceovers saved to: {output_path}")
+
+
+def run_voiceover_generation(FOLDER):
+    """
+    Example runner function.
+    """
+    asyncio.run(
+        generate_manga_voiceovers(
+            manga_folder=FOLDER,
+            output_subdir="audio_output",
+            voice="en-US-AriaNeural",
+            rate="+0%",
+            volume="+0%",
+        )
+    )
