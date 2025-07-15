@@ -3,7 +3,8 @@ import cv2
 import numpy as np
 import random
 import ffmpeg
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
+
 
 # === CONFIG ===
 FRAME_RATE = 30
@@ -191,7 +192,8 @@ def combine_videos_with_audio(image_dir):
                 ffmpeg.input(video_path),
                 #ffmpeg.input(reencoded_audio_path),
                 output_path,
-                vcodec="copy",
+                vcodec="libx264",
+                pix_fmt="yuv420p",
                 acodec="aac",
                 shortest=None
             )
@@ -212,7 +214,7 @@ def combine_videos_with_audio(image_dir):
         for fpath in merged_files:
             f.write(f"file '{os.path.abspath(fpath)}'\n")
 
-    final_output = os.path.join(image_dir, "final.mp4")
+    final_output = os.path.join(image_dir, "combined.mp4")
 
     # Concatenate final video
     (
@@ -226,44 +228,259 @@ def combine_videos_with_audio(image_dir):
     print(f"[FINAL VIDEO] {final_output} created.")
 
 
-# def add_lofi_background_audio(image_dir, lofi_audio_path):
-#     video_path = os.path.join(image_dir, "final.mp4")
-#     output_path = os.path.join(image_dir, "final_bg.mp4")
+def get_video_resolution(video_path):
+    probe = ffmpeg.probe(video_path)
+    video_stream = next(s for s in probe["streams"] if s["codec_type"] == "video")
+    return int(video_stream["width"]), int(video_stream["height"])
 
-#     # Load inputs
-#     video_input = ffmpeg.input(video_path)
-#     lofi_input = ffmpeg.input(lofi_audio_path)
+def add_intro_and_credits(folder_path, cover_path, NUM, CREDITS):
+    # Your final video path
+    main_video = os.path.join(folder_path, "combined.mp4")
+    
+    temp_dir = os.path.join(folder_path, "intro_temp")
+    os.makedirs(temp_dir, exist_ok=True)
 
-#     # Adjust lofi volume
-#     lofi_audio = lofi_input.audio.filter("volume", 0.3)
-#     video_audio = video_input.audio
+    # Get resolution of final video
+    width, height = get_video_resolution(main_video)
 
-#     # Mix both
-#     mixed_audio = ffmpeg.filter(
-#         [video_audio, lofi_audio],
-#         "amix",
-#         inputs=2,
-#         duration="shortest",
-#         dropout_transition=2
-#     )
+    ## --------------------------------------------
+    ## STEP 1 - Create Cover Image resized properly
+    ## --------------------------------------------
 
-#     # Combine video stream + mixed audio
-#     (
-#         ffmpeg
-#         .output(video_input["v"], mixed_audio, output_path, vcodec="copy", acodec="aac")
-#         .overwrite_output()
-#         .run(quiet=True)
-#     )
+    cover_img = Image.open(cover_path).convert("RGB")
+    
+    # Resize cover image to cover entire video frame keeping aspect ratio
+    cover_ratio = cover_img.width / cover_img.height
+    target_ratio = width / height
+    
+    if cover_ratio > target_ratio:
+        # Image is wider → resize height
+        new_height = height
+        new_width = int(height * cover_ratio)
+    else:
+        # Image is taller → resize width
+        new_width = width
+        new_height = int(width / cover_ratio)
+    
+    cover_img_resized = cover_img.resize((new_width, new_height), Image.LANCZOS)
+    
+    # Crop center
+    left = (new_width - width) // 2
+    top = (new_height - height) // 2
+    cover_img_cropped = cover_img_resized.crop(
+        (left, top, left + width, top + height)
+    )
+    
+    # Add NUM text bottom-right with small padding
+    draw = ImageDraw.Draw(cover_img_cropped)
 
-#     print(f"[LOFI] Final with background lofi: {output_path}")
+    text = str(NUM)
+    padding = int(height * 0.03)
+    font_size = int(height * 0.08)
+
+    try:
+        font = ImageFont.truetype("/Library/Fonts/Arial.ttf", font_size)
+    except Exception as e:
+        print(f"[WARNING] Falling back to default font: {e}")
+        font = ImageFont.load_default()
+
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+
+    # Ensure text is fully inside the image
+    x = max(0, width - text_w - padding)
+    y = max(0, height - text_h - padding)
+
+    # Draw white text on top
+    draw.text((x, y), text, fill="white", font=font)
+    
+    cover_img_path = os.path.join(temp_dir, "cover_temp.jpg")
+    cover_img_cropped.save(cover_img_path)
+
+    # Convert cover image to mp4 (1 second, silent)
+    cover_mp4_path = os.path.join(temp_dir, "cover.mp4")
+    ffmpeg.input(cover_img_path, loop=1, t=1) \
+        .filter("scale", width, height) \
+        .output(cover_mp4_path, pix_fmt="yuv420p", vcodec="libx264", r=30, shortest=None) \
+        .overwrite_output() \
+        .run()
+    
+    ## ----------------------------------------
+    ## STEP 2 - Create Credits Image
+    ## ----------------------------------------
+
+    # Prepare credits text block
+    credit_text = "\n".join([f"{k}: {v}" for k, v in CREDITS.items()])
+    
+    # Create blank black image
+    credits_img = Image.new("RGB", (width, height), color="black")
+    draw = ImageDraw.Draw(credits_img)
+    
+    # Determine max text width and height
+    max_width = width * 0.9
+    
+    font_size = int(height * 0.02)
+    
+    try:
+        font = ImageFont.truetype("/Library/Fonts/Arial.ttf", font_size)
+    except Exception as e:
+        print(f"[WARNING] Falling back to default font: {e}")
+        font = ImageFont.load_default()
+
+    # Split credits into lines
+    lines = credit_text.split("\n")
+    
+    # Measure height of all lines
+    line_sizes = []
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        w = bbox[2] - bbox[0]
+        h = bbox[3] - bbox[1]
+        line_sizes.append((w, h))
+
+    total_text_height = sum(h for (_, h) in line_sizes) + (len(lines)-1)*10
+    
+    y_start = (height - total_text_height) // 2
+    
+    # Draw each line centered
+    y = y_start
+    for line, (w, h) in zip(lines, line_sizes):
+        x = (width - w) // 2
+        draw.text((x, y), line, fill="white", font=font)
+        y += h + 10
+    
+    credits_img_path = os.path.join(temp_dir, "credits_temp.jpg")
+    credits_img.save(credits_img_path)
+
+    # Convert credits image to mp4 (2 seconds, silent)
+    credits_mp4_path = os.path.join(temp_dir, "credits.mp4")
+    ffmpeg.input(credits_img_path, loop=1, t=2) \
+        .filter("scale", width, height) \
+        .output(credits_mp4_path, pix_fmt="yuv420p", vcodec="libx264", r=30, shortest=None) \
+        .overwrite_output() \
+        .run()
+    
+    ## ----------------------------------------
+    ## STEP 3 - Concatenate All Videos
+    ## ----------------------------------------
+    
+    # All videos must have same codec, pixel format, resolution, fps
+    # Concat in order: cover → credits → main
+    concat_list = os.path.join(temp_dir, "concat.txt")
+    with open(concat_list, "w") as f:
+        f.write(f"file '{os.path.abspath(cover_mp4_path)}'\n")
+        f.write(f"file '{os.path.abspath(credits_mp4_path)}'\n")
+        f.write(f"file '{os.path.abspath(main_video)}'\n")
+    
+    output_path = os.path.join(folder_path, "final_intro.mp4")
+    
+    (
+        ffmpeg
+        .input(concat_list, format="concat", safe=0)
+        .output(output_path, c="copy", acodec="aac")
+        .overwrite_output()
+        .run(quiet=True)
+    )
+    
+    return output_path
+
+def add_background_music(folder_path, music_path, music_volume=0.1):
+    video_path = os.path.join(folder_path, "final_intro.mp4")
+    final_output = os.path.join(folder_path, "final.mp4")
+
+    if not os.path.exists(video_path):
+        print(f"Video not found: {video_path}")
+        return
+
+    try:
+        # Get video duration
+        video_info = ffmpeg.probe(video_path)
+        video_duration = float(next(stream for stream in video_info['streams'] if stream['codec_type'] == 'video')['duration'])
+
+        # Loop background music until it matches video length
+        music_input = ffmpeg.input(music_path, stream_loop=-1)
+        music_audio = music_input.audio.filter('volume', music_volume)
+
+        video_input = ffmpeg.input(video_path)
+
+        # Check if original video has audio
+        has_audio = any(stream['codec_type'] == 'audio' for stream in video_info['streams'])
+
+        if has_audio:
+            # Mix original video audio and background music
+            mixed_audio = ffmpeg.filter([video_input.audio, music_audio], 'amix', inputs=2, duration='first', dropout_transition=3)
+        else:
+            # Use only background music
+            mixed_audio = music_audio
+
+        out = (
+            ffmpeg
+            .output(video_input.video, mixed_audio, final_output,
+                    vcodec='copy', acodec='aac', audio_bitrate='192k', shortest=None)
+            .overwrite_output()
+        )
+
+        out.run()
+        print(f"Final video saved to: {final_output}")
+
+    except ffmpeg.Error as e:
+        print("FFmpeg error:", e.stderr.decode())
+
+
+import shutil
+def clean_temp(folder_path):
+    targets = ['temp_final_chunks', 'intro_temp']
+
+    for name in targets:
+        dir_path = os.path.join(folder_path, name)
+        if os.path.exists(dir_path) and os.path.isdir(dir_path):
+            try:
+                shutil.rmtree(dir_path)
+                print(f"Deleted: {dir_path}")
+            except Exception as e:
+                print(f"Error deleting {dir_path}: {e}")
+        else:
+            print(f"Not found or not a directory: {dir_path}")
 
 # === MAIN ===
-def generate_video(folder_path, platform="youtube"):
+def generate_video(folder_path, NUM, platform="youtube"):
     audio_dir = os.path.join(folder_path, "audio_output")
     delete_long_audios(audio_dir, max_duration=15.0)
     generate_video_chunks(folder_path, platform)
     ensure_audio_files_exist(folder_path)
     combine_videos_with_audio(folder_path)
-    # lofi_path = "lofi.mp3"  # path to your lofi music
-    # add_lofi_background_audio(folder_path, lofi_path)
+    
+    AUDIO_CREDITS = {
+        "./background_audio/rainy-lofi-city-lofi-music-332746.mp3": "Music by kaveesha Senanayake from Pixabay",
+        "./background_audio/coffee-lofi-chill-lofi-music-332738.mp3": "Music by kaveesha Senanayake from Pixabay",
+        "./background_audio/lofi-girl-lofi-background-music-361058.mp3": "Music by kaveesha Senanayake from Pixabay",
+    }
 
+    def select_random_audio(audio_dir="./background_audio"):
+        files = [f for f in os.listdir(audio_dir) if f.endswith(".mp3")]
+        if not files:
+            raise FileNotFoundError("No .mp3 files found in background_audio/")
+        selected = random.choice(files)
+        full_path = os.path.join(audio_dir, selected)
+        credit = AUDIO_CREDITS.get(full_path, "Audio by Unknown")
+        return full_path, credit
+    
+    music_path, music_credit = select_random_audio()
+
+    CREDITS = {
+        "Story by": "TURTLEME",
+        "Art by": "FUYUKI123",
+        "Presented by": "TAPAS MEDIA",
+        "Quality Control by": "KISIA ENTERTAINMENT",
+        "Editor": "GABRIELLE LUU",
+        "Color Assistant": "PLOWPLO",
+        "Music": music_credit
+    }
+
+    cover_path = "./cover/tbate-comic1.jpg"
+    add_intro = add_intro_and_credits(folder_path, cover_path, NUM, CREDITS)
+
+    add_background_music(folder_path, music_path)
+
+    clean_temp(folder_path)
