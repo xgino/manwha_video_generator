@@ -56,7 +56,6 @@ def process_chapter(NUM):
 
     url = f"https://beginningaftertheendmanga.org/manga/the-beginning-after-the-end-chapter-{NUM}/"
     FOLDER = f"downloads/the-beginning-after-the-end-chapter-{NUM}"
-    # FOLDER = f"downloads/the-beginning-after-the-end-chapter-32"
 
     downloader = MangaDownloader()
     downloader.download_chapter(url)
@@ -72,7 +71,7 @@ def process_chapter(NUM):
 
 
 # Loop through chapters 33 to 120
-for NUM in range(56, 80):
+for NUM in range(87, 88):
     print(f"\n🔁 Processing chapter {NUM}")
     process_chapter(NUM)
 
