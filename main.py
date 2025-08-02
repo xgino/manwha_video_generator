@@ -54,8 +54,10 @@ def process_chapter(NUM):
     # Download Manga Images
     from manga_downloader import MangaDownloader
 
-    url = f"https://beginningaftertheendmanga.org/manga/the-beginning-after-the-end-chapter-{NUM}/"
-    FOLDER = f"downloads/the-beginning-after-the-end-chapter-{NUM}"
+    # url = f"https://beginningaftertheendmanga.org/manga/the-beginning-after-the-end-chapter-{NUM}/"
+    # FOLDER = f"downloads/the-beginning-after-the-end-chapter-{NUM}"
+    url = f"https://w27.ao-ashi-manga.com/manga/ao-ashi-chapter-{NUM}/"
+    FOLDER = f"downloads/ao-ashi-chapter-{NUM}"
 
     downloader = MangaDownloader()
     downloader.download_chapter(url)
@@ -70,8 +72,8 @@ def process_chapter(NUM):
     generate_a_video(FOLDER, NUM)
 
 
-# Loop through chapters 33 to 120
-for NUM in range(87, 88):
+# Loop through chapters
+for NUM in range(300, 300):
     print(f"\n🔁 Processing chapter {NUM}")
     process_chapter(NUM)
 

@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 # === CONFIG ===
 FRAME_RATE = 30
-SPEECH_END_PADDING = 1.2
+SPEECH_END_PADDING = 1.5
 VIDEO_OUTPUT_DIR = "video_output"
 PLATFORM_DIMENSIONS = {
     "youtube": (1920, 1080),
@@ -469,16 +469,15 @@ def generate_video(folder_path, NUM, platform="youtube"):
     music_path, music_credit = select_random_audio()
 
     CREDITS = {
-        "Story by": "TURTLEME",
-        "Art by": "FUYUKI123",
-        "Presented by": "TAPAS MEDIA",
-        "Quality Control by": "KISIA ENTERTAINMENT",
-        "Editor": "GABRIELLE LUU",
-        "Color Assistant": "PLOWPLO",
+        "Written by": "Yūgo Kobayashi",
+        "Written by": "Naohiko Ueno",
+        "Illustrated by": "Yūgo Kobayashi",
+        "Published by": "Shogakukan",
+        "publisher": "SG: Shogakukan Asia",
         "Music": music_credit
     }
 
-    cover_path = "./cover/tbate-comic1.jpg"
+    cover_path = "./cover/aoshi.jpg"
     add_intro = add_intro_and_credits(folder_path, cover_path, NUM, CREDITS)
 
     add_background_music(folder_path, music_path)
